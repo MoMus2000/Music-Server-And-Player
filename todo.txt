@@ -1,0 +1,5 @@
+What I want to accomplish
+
+1. I want to stream songs from a server with encrypted packets (done)
+2. I want to be able to listen to songs based on my mood, accomplished by attaching tags to songs
+3. I want a nice UI to play songs with visualizations, on both the computer and phone
