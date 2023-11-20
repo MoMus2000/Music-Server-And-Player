@@ -17,6 +17,7 @@ type MusicClient struct {
 	SongName string
 	Pause    chan int
 	Done     chan bool
+	Complete bool
 }
 
 func NewMusicClient(Addr string, SongName string) *MusicClient {
@@ -25,6 +26,7 @@ func NewMusicClient(Addr string, SongName string) *MusicClient {
 		SongName: SongName,
 		Pause:    make(chan int),
 		Done:     make(chan bool),
+		Complete: false,
 	}
 }
 
@@ -110,4 +112,6 @@ func (client *MusicClient) Listen() {
 
 	// Block until done
 	<-client.Done
+
+	client.Complete = true
 }
