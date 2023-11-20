@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"math"
+	"math/cmplx"
 	"math/rand"
 	"os/exec"
 	"strconv"
@@ -10,6 +12,7 @@ import (
 
 	"github.com/faiface/beep/speaker"
 	"github.com/liamg/gobless"
+	"github.com/music-server/music"
 	"github.com/music-server/transport"
 )
 
@@ -46,9 +49,14 @@ func cleanSongName(listOfSongs string) string {
 	return splits[len(splits)-1]
 }
 
+var currentCounter int = 0
+
 func InitUI(listOfSongs []string) {
-	var currentCounter int = 0
+
 	listOfClients = InitClient(listOfSongs)
+
+	framer := make(chan []float64, 0)
+	msv := transport.MusicStreamVisualizer{Framer: framer}
 
 	gui := gobless.NewGUI()
 	if err := gui.Init(); err != nil {
@@ -67,7 +75,7 @@ func InitUI(listOfSongs []string) {
 
 	}
 	helloTextbox.SetText(`
-Sasta Player AKA - The Poor Man's Spotify
+The Poor Man's Spotify
 ` + formatString)
 	helloTextbox.SetBorderColor(gobless.ColorGreen)
 	helloTextbox.SetTitle("Information")
@@ -93,7 +101,7 @@ Press Enter to pause.
 
 	chart2 := gobless.NewBarChart()
 	chart2.SetTitle("Visuals")
-	chart2.SetYScale(101)
+	chart2.SetYScale(5)
 	chart2.SetBarStyle(gobless.NewStyle(gobless.ColorRed, gobless.ColorWhite))
 	chart2.SetBorderColor(gobless.ColorRed)
 
@@ -101,17 +109,17 @@ Press Enter to pause.
 		gobless.NewRow(
 			gobless.GridSizeThreeQuarters,
 			gobless.NewColumn(
-				gobless.GridSizeTwoThirds,
-				helloTextbox,
+				gobless.GridSizeThreeQuarters,
+				chart2,
 			),
 			gobless.NewColumn(
-				gobless.GridSizeOneThird,
+				gobless.GridSizeOneQuarter,
 				gobless.NewRow(
-					gobless.GridSizeFull,
+					gobless.GridSizeFiveSixths,
 					gobless.NewColumn(
-						gobless.GridSizeFiveSixths,
-						chart,
-						chart2,
+						gobless.GridSizeFull,
+						// chart,
+						helloTextbox,
 					),
 				),
 			),
@@ -120,13 +128,15 @@ Press Enter to pause.
 			gobless.NewColumn(
 				gobless.GridSizeFull,
 				quitTextbox,
+				// helloTextbox,
 			),
 		),
 	}
+
 	gui.Render(rows...)
 
 	// go checkVolumeRoutine(gui, chart, rows...)
-	go visualizeMusic(gui, chart2, rows...)
+	go visualizeMusic(gui, chart2, msv, rows...)
 
 	gui.HandleKeyPress(gobless.KeyCtrlQ, func(event gobless.KeyPressEvent) {
 		gui.Close()
@@ -145,13 +155,16 @@ Press Enter to pause.
 
 	gui.HandleKeyPress(gobless.KeyRight, func(event gobless.KeyPressEvent) {
 		helloTextbox.SetText(format(currentCounter, listOfSongs))
+		// go func() {
+		// 	fmt.Println("INCOMING DATA: ", len(<-msv.Framer))
+		// }()
 		if currentCounter != 0 && currentCounter != len(listOfSongs)-1 {
 			if listOfClients[currentCounter-1].Complete == false {
 				listOfClients[currentCounter-1].Done <- true
 			} else if listOfClients[currentCounter-1].Complete == true {
 				listOfClients[currentCounter-1].Complete = false
 			}
-			go listOfClients[currentCounter].Listen()
+			go listOfClients[currentCounter].Listen(&msv)
 			helloTextbox.SetText(format(currentCounter, listOfSongs))
 		} else if currentCounter == len(listOfSongs)-1 {
 			if listOfClients[currentCounter-1].Complete == false {
@@ -159,12 +172,12 @@ Press Enter to pause.
 			} else if listOfClients[currentCounter-1].Complete == true {
 				listOfClients[currentCounter-1].Complete = false
 			}
-			go listOfClients[currentCounter].Listen()
+			go listOfClients[currentCounter].Listen(&msv)
 			helloTextbox.SetText(format(currentCounter, listOfSongs))
 			currentCounter = 0
 			return
 		} else {
-			go listOfClients[currentCounter].Listen()
+			go listOfClients[currentCounter].Listen(&msv)
 		}
 		currentCounter += 1
 	})
@@ -173,7 +186,7 @@ Press Enter to pause.
 		helloTextbox.SetText(format(currentCounter, listOfSongs))
 		if currentCounter > 0 {
 			listOfClients[currentCounter].Done <- true
-			go listOfClients[currentCounter-1].Listen()
+			go listOfClients[currentCounter-1].Listen(&msv)
 			helloTextbox.SetText(format(currentCounter, listOfSongs))
 			currentCounter -= 1
 		}
@@ -253,16 +266,73 @@ func InitClient(songCandidates []string) []*transport.MusicClient {
 	return listOfClients
 }
 
-func visualizeMusic(gui *gobless.GUI, chart *gobless.BarChart, rows ...gobless.Component) {
+func visualizeMusic(gui *gobless.GUI, chart *gobless.BarChart, msv transport.MusicStreamVisualizer, rows ...gobless.Component) {
 	for {
 		select {
-		case <-time.After(time.Millisecond * 1000):
-			chart.SetBar("EU", rand.Intn(101))
-			chart.SetBar("NA", rand.Intn(101))
-			chart.SetBar("SA", rand.Intn(101))
-			chart.SetBar("AS", rand.Intn(101))
-			chart.SetBar("NB", rand.Intn(101))
-			chart.SetBar("SQ", rand.Intn(101))
+		case <-time.After(time.Nanosecond):
+			samples := <-msv.Framer
+			desiredBinCount := 64
+
+			// Trim or zero-pad the input signal to the desired length
+			if len(samples) > desiredBinCount {
+				samples = samples[:desiredBinCount]
+			} else if len(samples) < desiredBinCount {
+				// Zero-pad if the input signal is shorter than the desired length
+				zeroPads := make([]float64, desiredBinCount-len(samples))
+				samples = append(samples, zeroPads...)
+			}
+
+			var amplitude []float64 = make([]float64, 0)
+			y := make([]complex128, len(samples))
+			if len(y) > 0 {
+				music.Ditfft2(samples, y, len(samples), 1)
+				for i := range y {
+					window := 0.54 - 0.46*math.Cos(2*math.Pi*float64(i)/float64(len(y)-1))
+					y[i] *= complex(window, 0)
+				}
+				for _, complexNumber := range y {
+					// strNumber := strconv.Itoa(i)
+					amplitude = append(amplitude, cmplx.Abs(complexNumber)*10000)
+					// chart.SetBar(strNumber, int(cmplx.Abs(complexNumber)*1000))
+				}
+			}
+			var MaxVal float64
+			for _, val := range amplitude {
+				if val > (MaxVal) {
+					MaxVal = val
+				}
+			}
+			chart.SetYScale(int(MaxVal * 0.30))
+			// sort.Sort(sort.Reverse(sort.Float64Slice(amplitude)))
+
+			first20 := amplitude[:64]
+			for i, value := range first20 {
+				strNumber := strconv.Itoa(i)
+				chart.SetBar("%F{black}"+strNumber, int(value))
+			}
+
+			colorWays := []gobless.Color{gobless.ColorRed, gobless.ColorBlueViolet, gobless.ColorRoyalBlue, gobless.ColorDarkRed, gobless.ColorOrangeRed}
+			index := rand.Intn(len(colorWays))
+			chart.SetBarStyle(gobless.NewStyle(colorWays[index], colorWays[index]))
+			chart.SetStyle(gobless.NewStyle(gobless.ColorBlack, gobless.ColorBlack))
+			chart.SetBarSpacing(true)
+			// chart.SetYScale(rand.Intn(1001))
+			// chart.SetBar("EU", len(<-msv.Framer))
+			// chart.SetBar("NA", rand.Intn(101))
+			// chart.SetBar("SA", rand.Intn(101))
+			// chart.SetBar("AS", rand.Intn(101))
+			// chart.SetBar("NB", rand.Intn(101))
+			// chart.SetBar("SQ", rand.Intn(101))
+			// chart.SetBar("NA1", rand.Intn(101))
+			// chart.SetBar("SA2", rand.Intn(101))
+			// chart.SetBar("AS3", rand.Intn(101))
+			// chart.SetBar("NB4", rand.Intn(101))
+			// chart.SetBar("SQ52", rand.Intn(101))
+			// chart.SetBar("NA12", rand.Intn(101))
+			// chart.SetBar("SA22", rand.Intn(101))
+			// chart.SetBar("AS32", rand.Intn(101))
+			// chart.SetBar("NB42", rand.Intn(101))
+			// chart.SetBar("SQ52", rand.Intn(101))
 			gui.Render(rows...)
 		case <-quitChan:
 			break
@@ -281,7 +351,7 @@ func format(currentSong int, listOfSongs []string) string {
 
 	}
 	return `
-Sasta Player AKA - The Poor Man's Spotify
+The Poor Man's Spotify
 
 ` + formatString
 }
