@@ -18,6 +18,7 @@ type MusicClient struct {
 	Pause    chan int
 	Done     chan bool
 	Complete bool
+	Samples  chan [][2]float64
 }
 
 func NewMusicClient(Addr string, SongName string) *MusicClient {
@@ -27,6 +28,7 @@ func NewMusicClient(Addr string, SongName string) *MusicClient {
 		Pause:    make(chan int),
 		Done:     make(chan bool),
 		Complete: false,
+		Samples:  make(chan [][2]float64),
 	}
 }
 
@@ -51,30 +53,41 @@ func (cn CustomNet) Close() error {
 	return cn.conn.Close()
 }
 
-type BassBoostEffect struct {
+type MusicStreamVisualizer struct {
 	Streamer beep.Streamer
-	Gain     float64
+	Samples  [][2]float64
+	Client   *MusicClient
+	Framer   chan []float64
 }
 
-func (bb *BassBoostEffect) Stream(samples [][2]float64) (n int, ok bool) {
-	n, ok = bb.Streamer.Stream(samples)
+func (msv MusicStreamVisualizer) Stream(samples [][2]float64) (n int, ok bool) {
+	n, ok = msv.Streamer.Stream(samples)
 	if !ok {
 		return n, false
 	}
 
+	framer := make([]float64, 0)
+
 	for i := range samples {
-		samples[i][0] *= (1 + bb.Gain)
-		samples[i][1] *= (1 + bb.Gain)
+		framer = append(framer, samples[i][1])
+		// 	// leftEar := samples[i][0] // Left Ear
+		// 	// fmt.Println(len(msv.Framer))
+		// 	// rightEar := samples[i][1] // Right Ear
+		// 	// appendFloat64ToFile("musicStream.json", samples[i][:])
 	}
+
+	go func() {
+		msv.Framer <- framer
+	}()
 
 	return n, true
 }
 
-func (bb *BassBoostEffect) Err() error {
-	return bb.Streamer.Err()
+func (msv MusicStreamVisualizer) Err() error {
+	return msv.Streamer.Err()
 }
 
-func (client *MusicClient) Listen() {
+func (client *MusicClient) Listen(msv *MusicStreamVisualizer) {
 	conn, err := tls.Dial("tcp", client.Address, &tls.Config{
 		InsecureSkipVerify: true,
 	})
@@ -106,7 +119,10 @@ func (client *MusicClient) Listen() {
 		return
 	}
 
-	speaker.Play(beep.Seq(streamer, beep.Callback(func() {
+	// Wrap visualizer over stream
+	msv.Streamer = streamer
+
+	speaker.Play(beep.Seq(msv, beep.Callback(func() {
 		client.Done <- true
 	})))
 
