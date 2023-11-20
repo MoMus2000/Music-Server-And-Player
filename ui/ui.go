@@ -146,11 +146,19 @@ Press Enter to pause.
 	gui.HandleKeyPress(gobless.KeyRight, func(event gobless.KeyPressEvent) {
 		helloTextbox.SetText(format(currentCounter, listOfSongs))
 		if currentCounter != 0 && currentCounter != len(listOfSongs)-1 {
-			listOfClients[currentCounter-1].Done <- true
+			if listOfClients[currentCounter-1].Complete == false {
+				listOfClients[currentCounter-1].Done <- true
+			} else if listOfClients[currentCounter-1].Complete == true {
+				listOfClients[currentCounter-1].Complete = false
+			}
 			go listOfClients[currentCounter].Listen()
 			helloTextbox.SetText(format(currentCounter, listOfSongs))
 		} else if currentCounter == len(listOfSongs)-1 {
-			listOfClients[currentCounter-1].Done <- true
+			if listOfClients[currentCounter-1].Complete == false {
+				listOfClients[currentCounter-1].Done <- true
+			} else if listOfClients[currentCounter-1].Complete == true {
+				listOfClients[currentCounter-1].Complete = false
+			}
 			go listOfClients[currentCounter].Listen()
 			helloTextbox.SetText(format(currentCounter, listOfSongs))
 			currentCounter = 0
