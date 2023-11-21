@@ -69,7 +69,7 @@ func (msv MusicStreamVisualizer) Stream(samples [][2]float64) (n int, ok bool) {
 	framer := make([]float64, 0)
 
 	for i := range samples {
-		framer = append(framer, samples[i][1])
+		framer = append(framer, samples[i][0])
 		// 	// leftEar := samples[i][0] // Left Ear
 		// 	// fmt.Println(len(msv.Framer))
 		// 	// rightEar := samples[i][1] // Right Ear
@@ -112,6 +112,7 @@ func (client *MusicClient) Listen(msv *MusicStreamVisualizer) {
 	defer streamer.Close()
 
 	// Wrap the existing streamer with the bass boost effect
+
 	err = speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/10))
 
 	if err != nil {
