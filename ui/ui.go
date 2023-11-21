@@ -20,6 +20,8 @@ var quitChan = make(chan bool)
 
 var listOfClients []*transport.MusicClient
 var currentSong string
+var rows []gobless.Component
+var trigger int = 0
 
 var lock int = 0
 
@@ -83,6 +85,7 @@ The Poor Man's Spotify
 
 	quitTextbox := gobless.NewTextBox()
 	quitTextbox.SetText(`Press Ctrl-q to exit.
+Press Ctrl-f for full screen.
 Press -> to forward to the next song.
 Press <- to rollback to the previous song.
 Press ↑ ↓ or decrease music volume.
@@ -105,7 +108,7 @@ Press Enter to pause.
 	chart2.SetBarStyle(gobless.NewStyle(gobless.ColorRed, gobless.ColorWhite))
 	chart2.SetBorderColor(gobless.ColorRed)
 
-	rows := []gobless.Component{
+	rows = []gobless.Component{
 		gobless.NewRow(
 			gobless.GridSizeThreeQuarters,
 			gobless.NewColumn(
@@ -133,10 +136,10 @@ Press Enter to pause.
 		),
 	}
 
-	gui.Render(rows...)
+	// gui.Render(rows...)
 
 	// go checkVolumeRoutine(gui, chart, rows...)
-	go visualizeMusic(gui, chart2, msv, rows...)
+	go visualizeMusic(gui, chart2, msv)
 
 	gui.HandleKeyPress(gobless.KeyCtrlQ, func(event gobless.KeyPressEvent) {
 		gui.Close()
@@ -189,6 +192,52 @@ Press Enter to pause.
 			go listOfClients[currentCounter-1].Listen(&msv)
 			helloTextbox.SetText(format(currentCounter, listOfSongs))
 			currentCounter -= 1
+		}
+	})
+
+	gui.HandleKeyPress(gobless.KeyCtrlF, func(event gobless.KeyPressEvent) {
+		if trigger == 0 {
+			rows = []gobless.Component{
+				gobless.NewRow(
+					gobless.GridSizeThreeQuarters,
+					gobless.NewColumn(
+						gobless.GridSizeThreeQuarters,
+						chart2,
+					),
+					gobless.NewColumn(
+						gobless.GridSizeOneQuarter,
+						gobless.NewRow(
+							gobless.GridSizeFiveSixths,
+							gobless.NewColumn(
+								gobless.GridSizeFull,
+								// chart,
+								helloTextbox,
+							),
+						),
+					),
+				), gobless.NewRow(
+					gobless.GridSizeOneQuarter,
+					gobless.NewColumn(
+						gobless.GridSizeFull,
+						quitTextbox,
+						// helloTextbox,
+					),
+				),
+			}
+			gui.Render(rows...)
+			trigger = 1
+		} else {
+			rows = []gobless.Component{
+				gobless.NewRow(
+					gobless.GridSizeFull,
+					gobless.NewColumn(
+						gobless.GridSizeFull,
+						chart2,
+					),
+				),
+			}
+			gui.Render(rows...)
+			trigger = 0
 		}
 	})
 
@@ -245,18 +294,6 @@ Press Enter to pause.
 	gui.Loop()
 }
 
-// func checkVolumeRoutine(gui *gobless.GUI, chart *gobless.BarChart, rows ...gobless.Component) {
-// 	for {
-// 		select {
-// 		case <-time.After(time.Second * 10):
-// 			chart.SetBar("", getVolumeInfo())
-// 			gui.Render(rows...)
-// 		case <-quitChan:
-// 			break
-// 		}
-// 	}
-// }
-
 func InitClient(songCandidates []string) []*transport.MusicClient {
 	for i := 0; i < len(songCandidates); i++ {
 		song := songCandidates[i]
@@ -266,7 +303,7 @@ func InitClient(songCandidates []string) []*transport.MusicClient {
 	return listOfClients
 }
 
-func visualizeMusic(gui *gobless.GUI, chart *gobless.BarChart, msv transport.MusicStreamVisualizer, rows ...gobless.Component) {
+func visualizeMusic(gui *gobless.GUI, chart *gobless.BarChart, msv transport.MusicStreamVisualizer) {
 	for {
 		select {
 		case <-time.After(time.Nanosecond):
@@ -302,16 +339,17 @@ func visualizeMusic(gui *gobless.GUI, chart *gobless.BarChart, msv transport.Mus
 					MaxVal = val
 				}
 			}
-			chart.SetYScale(int(MaxVal * 0.30))
+			chart.SetYScale(int(MaxVal))
 			// sort.Sort(sort.Reverse(sort.Float64Slice(amplitude)))
 
-			first20 := amplitude[:64]
+			first20 := amplitude[:desiredBinCount]
 			for i, value := range first20 {
 				strNumber := strconv.Itoa(i)
 				chart.SetBar("%F{black}"+strNumber, int(value))
 			}
 
-			colorWays := []gobless.Color{gobless.ColorRed, gobless.ColorBlueViolet, gobless.ColorRoyalBlue, gobless.ColorDarkRed, gobless.ColorOrangeRed}
+			// colorWays := []gobless.Color{gobless.ColorRed, gobless.ColorBlueViolet, gobless.ColorRoyalBlue, gobless.ColorDarkRed, gobless.ColorOrangeRed}
+			colorWays := []gobless.Color{gobless.ColorOrangeRed}
 			index := rand.Intn(len(colorWays))
 			chart.SetBarStyle(gobless.NewStyle(colorWays[index], colorWays[index]))
 			chart.SetStyle(gobless.NewStyle(gobless.ColorBlack, gobless.ColorBlack))
